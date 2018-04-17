@@ -15,7 +15,11 @@ public class IgniteServiceB {
             IgniteCache<Integer, String> cache = ignite.cache(CACHE_NAME);
 
             if (cache != null)
-                cache.put(1, "one");
+                completeFuture(cache, 1, "one");
         }
+    }
+
+    private static void completeFuture(IgniteCache<Integer, String> cache, Integer key, String value) {
+        cache.put(key, value);
     }
 }

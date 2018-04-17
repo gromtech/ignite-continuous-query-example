@@ -31,38 +31,39 @@ public class IgniteClusterFuture implements IgniteCallable<String> {
         this.cacheName = cacheName;
     }
 
+    private String waitForValueChanged(IgniteCache<Integer, String> cache, Integer key) throws InterruptedException {
+        ContinuousQuery<Integer, String> qry = new ContinuousQuery<>();
+
+        qry.setInitialQuery(new ScanQuery<>((k, v) -> k == key));
+
+        final CountDownLatch waitForValueChanged = new CountDownLatch(1);
+        final AtomicReference<String> result = new AtomicReference<>();
+
+        CacheEntryUpdatedListener<Integer, String> listener = new CacheEntryUpdatedListener<Integer, String>() {
+            @Override public void onUpdated(Iterable<CacheEntryEvent<? extends Integer, ? extends String>> iterable) throws CacheEntryListenerException {
+                for (CacheEntryEvent<? extends Integer, ? extends String> entry: iterable) {
+                    result.set(entry.getValue());
+                }
+
+                waitForValueChanged.countDown();
+            }
+        };
+
+        qry.setLocalListener(listener);
+
+        try (QueryCursor<Cache.Entry<Integer, String>> cur = cache.query(qry);) {
+            waitForValueChanged.await(60000, TimeUnit.MILLISECONDS);
+        }
+
+        return result.get();
+    }
+
     @Override public String call() throws Exception {
         if (ignite != null) {
             IgniteCache<Integer, String> cache = ignite.cache(cacheName);
 
-            if (cache != null) {
-                // Creating a continuous query.
-                ContinuousQuery<Integer, String> qry = new ContinuousQuery<>();
-
-                qry.setInitialQuery(new ScanQuery<>((k, v) -> k == key));
-
-                final CountDownLatch waitForValueChanged = new CountDownLatch(1);
-                final AtomicReference<String> result = new AtomicReference<>();
-
-                CacheEntryUpdatedListener<Integer, String> listener = new CacheEntryUpdatedListener<Integer, String>() {
-                    @Override public void onUpdated(
-                        Iterable<CacheEntryEvent<? extends Integer, ? extends String>> iterable) throws CacheEntryListenerException {
-                        for (CacheEntryEvent<? extends Integer, ? extends String> entry: iterable) {
-                            result.set(entry.getValue());
-                        }
-
-                        waitForValueChanged.countDown();
-                    }
-                };
-
-                qry.setLocalListener(listener);
-
-                try (QueryCursor<Cache.Entry<Integer, String>> cur = cache.query(qry);) {
-                    waitForValueChanged.await(60000, TimeUnit.MILLISECONDS);
-                }
-
-                return result.get();
-            }
+            if (cache != null)
+                return waitForValueChanged(cache, key);
             else
                 throw new IgniteException("Cache instance is null.");
         }
